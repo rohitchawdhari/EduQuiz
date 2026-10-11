@@ -17,8 +17,8 @@ const generateToken = (id) => {
 // Seed default accounts if they don't exist
 const seedDefaultAccounts = async () => {
   try {
-    const adminExists = await User.findOne({ email: "admin@eduquiz.com" });
-    if (!adminExists) {
+    const admin = await User.findOne({ email: "admin@eduquiz.com" });
+    if (!admin) {
       await User.create({
         name: "EduQuiz Super Admin",
         email: "admin@eduquiz.com",
@@ -26,10 +26,18 @@ const seedDefaultAccounts = async () => {
         role: "admin",
       });
       console.log("🛡️ Default Admin created: admin@eduquiz.com / password123");
+    } else {
+      const match = await admin.matchPassword("password123");
+      if (!match) {
+        admin.password = "password123";
+        admin.role = "admin";
+        await admin.save();
+        console.log("🛡️ Default Admin password synced to: password123");
+      }
     }
 
-    const teacherExists = await User.findOne({ email: "teacher@eduquiz.com" });
-    if (!teacherExists) {
+    const teacher = await User.findOne({ email: "teacher@eduquiz.com" });
+    if (!teacher) {
       await User.create({
         name: "Prof. Test Teacher",
         email: "teacher@eduquiz.com",
@@ -37,10 +45,17 @@ const seedDefaultAccounts = async () => {
         role: "teacher",
       });
       console.log("🎓 Default Teacher created: teacher@eduquiz.com / password123");
+    } else {
+      const match = await teacher.matchPassword("password123");
+      if (!match) {
+        teacher.password = "password123";
+        teacher.role = "teacher";
+        await teacher.save();
+      }
     }
 
-    const studentExists = await User.findOne({ email: "student@eduquiz.com" });
-    if (!studentExists) {
+    const student = await User.findOne({ email: "student@eduquiz.com" });
+    if (!student) {
       await User.create({
         name: "Student User",
         email: "student@eduquiz.com",
@@ -48,6 +63,13 @@ const seedDefaultAccounts = async () => {
         role: "student",
       });
       console.log("🎒 Default Student created: student@eduquiz.com / password123");
+    } else {
+      const match = await student.matchPassword("password123");
+      if (!match) {
+        student.password = "password123";
+        student.role = "student";
+        await student.save();
+      }
     }
   } catch (err) {
     console.error("Account seed check:", err.message);
