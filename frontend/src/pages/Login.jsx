@@ -16,8 +16,12 @@ const Login = () => {
     setError('');
     setLoading(true);
     try {
-      await login(email, password);
-      navigate('/dashboard');
+      const userData = await login(email, password);
+      if (userData?.role === 'admin') {
+        navigate('/admin');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Login failed. Please check credentials.');
     } finally {
@@ -32,13 +36,18 @@ const Login = () => {
       // Demo accounts or auto-register helper
       const demoEmail = `${role}@eduquiz.com`;
       const demoPassword = 'password123';
+      let userData;
       try {
-        await login(demoEmail, demoPassword);
+        userData = await login(demoEmail, demoPassword);
       } catch (e) {
         // If not created yet, try register demo
-        await register(`Demo ${role.toUpperCase()}`, demoEmail, demoPassword, role);
+        userData = await register(`Demo ${role.toUpperCase()}`, demoEmail, demoPassword, role);
       }
-      navigate('/dashboard');
+      if (userData?.role === 'admin') {
+        navigate('/admin');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err) {
       setError('Unable to load demo account. Please signup.');
     } finally {

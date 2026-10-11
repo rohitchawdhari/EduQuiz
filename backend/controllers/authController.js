@@ -147,6 +147,17 @@ const loginUser = async (req, res) => {
     const user = await User.findOne({ email });
 
     if (user && (await user.matchPassword(password))) {
+      if (user.isBlocked) {
+        return res.status(403).json({
+          success: false,
+          message: `Your account has been suspended by the platform administrator.${user.blockedReason ? ' Reason: ' + user.blockedReason : ' Please contact support.'}`,
+        });
+      }
+
+      // Record last login time
+      user.lastLogin = new Date();
+      await user.save();
+
       // Dispatch Login Security Alert asynchronously (non-blocking)
       const clientIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "127.0.0.1";
       sendLoginNotification({
@@ -165,6 +176,8 @@ const loginUser = async (req, res) => {
           role: user.role,
           avatar: user.avatar,
           stats: user.stats,
+          isBlocked: user.isBlocked,
+          lastLogin: user.lastLogin,
           token: generateToken(user._id),
         },
       });

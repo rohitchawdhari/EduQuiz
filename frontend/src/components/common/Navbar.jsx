@@ -62,6 +62,20 @@ const Navbar = () => {
               Dashboard
             </Link>
 
+            {user?.role === 'admin' && (
+              <Link
+                to="/admin"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm ${
+                  isActive('/admin') 
+                    ? 'bg-amber-500/25 text-amber-600 dark:text-amber-300 border border-amber-500/50' 
+                    : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/20'
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+                Admin Panel
+              </Link>
+            )}
+
             <Link
               to="/explore"
               className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${

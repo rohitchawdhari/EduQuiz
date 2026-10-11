@@ -20,6 +20,13 @@ const protect = async (req, res, next) => {
         return res.status(401).json({ success: false, message: "User not found" });
       }
 
+      if (req.user.isBlocked) {
+        return res.status(403).json({
+          success: false,
+          message: `Your account has been suspended by the platform administrator.${req.user.blockedReason ? ' Reason: ' + req.user.blockedReason : ''}`,
+        });
+      }
+
       return next();
     } catch (error) {
       return res.status(401).json({ success: false, message: "Invalid or expired token" });

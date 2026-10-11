@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import API from '../services/api';
 import { 
@@ -83,14 +84,40 @@ const ProfilePage = () => {
       
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-2.5">
-          <User className="w-8 h-8 text-indigo-400" />
+        <h1 className="text-3xl font-extrabold text-[var(--text-primary)] tracking-tight flex items-center gap-2.5">
+          <User className="w-8 h-8 text-blue-500" />
           User Profile & Settings
         </h1>
-        <p className="text-sm text-gray-400 mt-1">
+        <p className="text-sm text-[var(--text-secondary)] mt-1">
           Manage your account details, security credentials, and review performance stats
         </p>
       </div>
+
+      {/* Master Administrator Control Banner */}
+      {user?.role === 'admin' && (
+        <div className="mb-8 p-5 rounded-3xl bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-blue-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xl">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-500 shadow-inner">
+              <Shield className="w-6 h-6 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30">Master Super Admin</span>
+                <span className="text-[11px] text-[var(--text-muted)]">Full Platform Authority</span>
+              </div>
+              <h3 className="text-base font-bold text-[var(--text-primary)] mt-1">Platform Control & User Moderation</h3>
+              <p className="text-xs text-[var(--text-secondary)]">Manage users, view who attempted what quiz, block/unblock, and moderate quizzes.</p>
+            </div>
+          </div>
+          <Link
+            to="/admin"
+            className="btn-gradient-primary px-5 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap shadow-md flex items-center gap-2 hover:scale-105 transition-transform"
+          >
+            <Shield className="w-4 h-4" />
+            Open Admin Command Center
+          </Link>
+        </div>
+      )}
 
       {/* User Stats Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10">

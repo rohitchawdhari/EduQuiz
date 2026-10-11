@@ -36,6 +36,18 @@ const userSchema = new mongoose.Schema(
       averageScore: { type: Number, default: 0 },
       totalPoints: { type: Number, default: 0 },
     },
+    isBlocked: {
+      type: Boolean,
+      default: false,
+    },
+    blockedReason: {
+      type: String,
+      default: "",
+    },
+    lastLogin: {
+      type: Date,
+      default: Date.now,
+    },
     resetPasswordToken: String,
     resetPasswordExpire: Date,
   },
