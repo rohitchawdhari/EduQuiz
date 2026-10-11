@@ -33,7 +33,9 @@ const baseEmailTemplate = ({
   ctaText,
   ctaUrl,
 }) => {
-  const clientUrl = process.env.CLIENT_URL || "http://localhost:5173";
+  const clientUrl = (process.env.CLIENT_URL && !process.env.CLIENT_URL.includes("localhost"))
+    ? process.env.CLIENT_URL
+    : (process.env.NODE_ENV === "production" ? "https://edu-quiz-indol.vercel.app" : (process.env.CLIENT_URL || "https://edu-quiz-indol.vercel.app"));
   const finalCtaUrl = ctaUrl || clientUrl;
 
   return `
@@ -628,7 +630,9 @@ const sendBattleInviteEmail = async ({
   title = "Live Quiz Battle",
   subject = "General Knowledge",
 }) => {
-  const clientUrl = process.env.CLIENT_URL || "https://edu-quiz-indol.vercel.app";
+  const clientUrl = (process.env.CLIENT_URL && !process.env.CLIENT_URL.includes("localhost"))
+    ? process.env.CLIENT_URL
+    : (process.env.NODE_ENV === "production" ? "https://edu-quiz-indol.vercel.app" : (process.env.CLIENT_URL || "https://edu-quiz-indol.vercel.app"));
   const joinUrl = `${clientUrl}/competitions/arena/${roomCode}`;
 
   const contentHtml = `
