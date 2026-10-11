@@ -150,23 +150,30 @@ const inviteOpponentByEmail = async (req, res) => {
       return res.status(400).json({ success: false, message: "Room code and email are required" });
     }
 
-    const competition = await Competition.findOne({ roomCode: roomCode.trim().toUpperCase() });
+    const cleanCode = (roomCode || "").replace(/\s+/g, "").toUpperCase();
+    const competition = await Competition.findOne({ roomCode: cleanCode });
     if (!competition) {
       return res.status(404).json({ success: false, message: "Competition room not found" });
     }
 
     const { sendBattleInviteEmail } = require("../services/emailService");
-    await sendBattleInviteEmail({
+    
+    // Dispatch email asynchronously so client receives immediate instant confirmation
+    sendBattleInviteEmail({
       to: email.trim(),
       hostName: req.user.name || "A classmate",
       roomCode: competition.roomCode,
       title: competition.title || "Live Quiz Battle",
       subject: competition.subject || "Competitive Exam",
+    }).then((delivered) => {
+      console.log(`📧 Battle invite delivered to ${email.trim()}:`, delivered);
+    }).catch((err) => {
+      console.error("Invite email async delivery error:", err.message);
     });
 
     return res.json({
       success: true,
-      message: `Battle invitation dispatched successfully to ${email}!`,
+      message: `Invitation successfully dispatched to ${email.trim()}! Please tell them to check Inbox & Spam folder.`,
     });
   } catch (error) {
     console.error("Invite error:", error);

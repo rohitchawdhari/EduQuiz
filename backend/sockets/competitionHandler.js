@@ -20,6 +20,7 @@ const emitRoomUpdated = (io, competition) => {
       user: p.user ? p.user.toString() : p.socketId,
       name: p.name || "Competitor",
       isReady: !!p.isReady,
+      hasLeft: !!p.hasLeft,
       score: p.score || 0,
       correctCount: p.correctCount || 0,
       socketId: p.socketId,
@@ -246,9 +247,91 @@ const registerCompetitionHandlers = (io, socket) => {
     }
   });
 
-  socket.on("disconnect", () => {
-    console.log("Socket client disconnected:", socket.id);
+  // 6. Player explicitly leaves room
+  socket.on("leave_room", async ({ roomCode, userId }) => {
+    await handlePlayerLeaveRoom(io, socket, roomCode, userId);
   });
+
+  // 7. Socket Disconnect
+  socket.on("disconnect", async () => {
+    console.log("Socket client disconnected:", socket.id, "room:", socket.roomCode, "user:", socket.verifiedUserId);
+    await handlePlayerLeaveRoom(io, socket, socket.roomCode, socket.verifiedUserId);
+  });
+};
+
+/**
+ * Robust handler for player exit (pre-game removal from lobby vs in-game abandonment alert)
+ */
+const handlePlayerLeaveRoom = async (io, socket, roomCode, userId) => {
+  const code = (roomCode || socket.roomCode || "").trim().toUpperCase();
+  const uId = (userId || socket.verifiedUserId || socket.userId || "").toString();
+
+  if (!code || !uId) return;
+
+  try {
+    const competition = await Competition.findOne({ roomCode: code });
+    if (!competition || competition.status === "COMPLETED") return;
+
+    const leavingIndex = competition.players.findIndex(
+      (p) => p.user && p.user.toString() === uId
+    );
+
+    if (leavingIndex === -1) return;
+
+    const leavingPlayer = competition.players[leavingIndex];
+    const playerName = leavingPlayer.name || "A participant";
+
+    // CASE 1: LOBBY STATE (Before battle starts) -> Completely remove player from lobby
+    if (competition.status === "WAITING" || competition.status === "STARTING") {
+      competition.players.splice(leavingIndex, 1);
+
+      // Reassign host if the host left
+      if (
+        competition.host &&
+        competition.host.toString() === uId &&
+        competition.players.length > 0
+      ) {
+        competition.host = competition.players[0].user;
+      }
+
+      await competition.save();
+
+      // Emit updated room state so leaving player's card disappears immediately for all contestants
+      emitRoomUpdated(io, competition);
+
+      io.to(code).emit("player_left_lobby", {
+        userId: uId,
+        name: playerName,
+        message: `${playerName} left the lobby.`,
+      });
+
+      console.log(`👋 Player ${playerName} removed from lobby #${code}`);
+    } 
+    // CASE 2: ACTIVE BATTLE (In-Progress) -> Mark as left, notify participants with popup alert, calculate score fairly
+    else if (competition.status === "IN_PROGRESS" || competition.status === "QUESTION_ACTIVE") {
+      leavingPlayer.hasLeft = true;
+      await competition.save();
+
+      // Broadcast modal alert to all remaining participants in the battle
+      io.to(code).emit("player_abandoned_match", {
+        userId: uId,
+        name: playerName,
+        message: `⚠️ Contestant ${playerName} has left/disconnected from the battle! Remaining questions will determine the winner fairly from attempted scores.`,
+      });
+
+      console.log(`⚠️ Player ${playerName} abandoned active battle #${code}`);
+
+      // If all opponents left (1 or 0 active players remaining), conclude battle shortly
+      const remainingActivePlayers = competition.players.filter((p) => !p.hasLeft);
+      if (remainingActivePlayers.length <= 1) {
+        setTimeout(() => {
+          finishCompetition(io, code);
+        }, 3500);
+      }
+    }
+  } catch (err) {
+    console.error("handlePlayerLeaveRoom error:", err);
+  }
 };
 
 /**

@@ -42,6 +42,10 @@ const CompetitionArena = () => {
   const [inviteLoading, setInviteLoading] = useState(false);
   const [inviteMsg, setInviteMsg] = useState('');
 
+  // Opponent Disconnect / Leave Alerts
+  const [abandonAlert, setAbandonAlert] = useState(null);
+  const [lobbyAlert, setLobbyAlert] = useState('');
+
   // Active Question
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [selectedOption, setSelectedOption] = useState(null);
@@ -164,6 +168,17 @@ const CompetitionArena = () => {
       setError(msg);
     });
 
+    // Player Left Lobby
+    socket.on('player_left_lobby', (data) => {
+      setLobbyAlert(data.message || `${data.name} left the lobby.`);
+      setTimeout(() => setLobbyAlert(''), 5000);
+    });
+
+    // Opponent Left Active Battle
+    socket.on('player_abandoned_match', (data) => {
+      setAbandonAlert(data);
+    });
+
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       socket.off('connect', emitJoin);
@@ -172,6 +187,8 @@ const CompetitionArena = () => {
       socket.off('live_leaderboard_update');
       socket.off('competition_finished');
       socket.off('error_message');
+      socket.off('player_left_lobby');
+      socket.off('player_abandoned_match');
     };
   }, [code, user]);
 
@@ -234,6 +251,31 @@ const CompetitionArena = () => {
     }
   };
 
+  // Leave Room explicitly
+  const handleLeaveRoom = () => {
+    if (socketRef.current && user?._id) {
+      socketRef.current.emit('leave_room', {
+        roomCode: code,
+        userId: user._id,
+      });
+    }
+    navigate('/competitions');
+  };
+
+  // Handle window or tab close
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (socketRef.current && user?._id) {
+        socketRef.current.emit('leave_room', {
+          roomCode: code,
+          userId: user._id,
+        });
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [code, user]);
+
   if (error) {
     return (
       <div className="max-w-md mx-auto my-16 p-8 glass-panel rounded-2xl text-center">
@@ -250,8 +292,9 @@ const CompetitionArena = () => {
     );
   }
 
-  // Deduplicate and sanitize player list
+  // Deduplicate and sanitize player list (filtering out players who left)
   const uniquePlayers = (roomData?.players || []).reduce((acc, current) => {
+    if (current.hasLeft) return acc;
     const rawId = current.user 
       ? (typeof current.user === 'object' ? current.user._id?.toString() : current.user.toString())
       : current.socketId;
@@ -308,6 +351,14 @@ const CompetitionArena = () => {
             </div>
             <p className="text-[11px] text-[var(--text-muted)] mt-1.5">Share this code with your opponent or invite them via email below</p>
           </div>
+
+          {/* Lobby Notice on player leave */}
+          {lobbyAlert && (
+            <div className="mt-4 p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-500 text-xs font-semibold flex items-center justify-center gap-2 animate-in fade-in">
+              <AlertCircle className="w-4 h-4" />
+              <span>{lobbyAlert}</span>
+            </div>
+          )}
 
           {/* Email Invite Box */}
           <div className="py-6 border-b border-[var(--border-subtle)]">
@@ -402,8 +453,8 @@ const CompetitionArena = () => {
           <div className="pt-6 border-t border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-4">
             <button
               type="button"
-              onClick={() => navigate('/competitions')}
-              className="px-4 py-2 text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+              onClick={handleLeaveRoom}
+              className="px-4 py-2 text-xs font-semibold text-rose-500 hover:text-rose-400 transition-colors cursor-pointer"
             >
               Leave Room
             </button>
@@ -518,6 +569,34 @@ const CompetitionArena = () => {
                   </span>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Contestant Abandoned Battle Alert Modal */}
+        {abandonAlert && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in">
+            <div className="w-full max-w-md glass-panel p-6 sm:p-8 rounded-3xl border border-amber-500/50 shadow-2xl text-center">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-500 border border-amber-500/40 flex items-center justify-center mx-auto mb-4">
+                <AlertCircle className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-bold text-[var(--text-primary)]">
+                Opponent Left The Battle!
+              </h3>
+              <p className="text-sm text-amber-500 dark:text-amber-300 mt-2 mb-6 leading-relaxed">
+                {abandonAlert.message || `${abandonAlert.name} has disconnected from the match.`}
+              </p>
+              <div className="p-3.5 rounded-xl bg-white/5 border border-white/10 text-xs text-[var(--text-secondary)] mb-6 text-left space-y-1.5">
+                <div>🎯 <strong>Fair Play Points:</strong> Scores earned from answered questions are preserved.</div>
+                <div>🏆 <strong>Winner Calculation:</strong> Final ranking will be computed based on highest points scored. Unattempted questions yield 0 points.</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAbandonAlert(null)}
+                className="w-full py-3 px-6 rounded-xl btn-gradient-primary text-white font-bold text-xs shadow-lg transition-transform hover:scale-[1.02] cursor-pointer"
+              >
+                Continue Battle & Claim Victory
+              </button>
             </div>
           </div>
         )}

@@ -22,6 +22,10 @@ const competitionPlayerSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  hasLeft: {
+    type: Boolean,
+    default: false,
+  },
   score: {
     type: Number,
     default: 0,
