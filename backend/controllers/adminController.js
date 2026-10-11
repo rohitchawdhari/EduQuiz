@@ -77,11 +77,11 @@ const getUserDetails = async (req, res) => {
 
     // Get all quiz attempts taken by this user
     const attempts = await Attempt.find({ userId: user._id })
-      .populate("quizId", "title subject difficulty totalQuestions passPercentage")
+      .populate("quizId", "title subject difficulty totalQuestions passingPercentage")
       .sort({ createdAt: -1 });
 
     // Get all quizzes created by this user (if teacher)
-    const quizzesCreated = await Quiz.find({ creator: user._id })
+    const quizzesCreated = await Quiz.find({ createdBy: user._id })
       .sort({ createdAt: -1 });
 
     return res.json({
@@ -234,7 +234,7 @@ const deleteUser = async (req, res) => {
 const getAllQuizzesAdmin = async (req, res) => {
   try {
     const quizzes = await Quiz.find()
-      .populate("creator", "name email role")
+      .populate("createdBy", "name email role")
       .sort({ createdAt: -1 });
 
     return res.json({ success: true, count: quizzes.length, data: quizzes });
@@ -272,7 +272,7 @@ const getAllAttemptsAdmin = async (req, res) => {
       status: { $in: ["SUBMITTED", "AUTO_SUBMITTED"] },
     })
       .populate("userId", "name email role avatar")
-      .populate("quizId", "title subject difficulty passPercentage")
+      .populate("quizId", "title subject difficulty passingPercentage")
       .sort({ submittedAt: -1 })
       .limit(60);
 

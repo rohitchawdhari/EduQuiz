@@ -53,16 +53,17 @@ const AdminPanel = () => {
   const fetchAdminData = async () => {
     setLoading(true);
     try {
-      const [statsRes, usersRes, quizzesRes, attemptsRes] = await Promise.all([
+      const results = await Promise.allSettled([
         API.get('/admin/stats'),
         API.get('/admin/users'),
         API.get('/admin/quizzes'),
         API.get('/admin/attempts'),
       ]);
-      setStats(statsRes.data.data);
-      setUsers(usersRes.data.data);
-      setQuizzes(quizzesRes.data.data);
-      setAttempts(attemptsRes.data.data);
+
+      if (results[0].status === 'fulfilled') setStats(results[0].value.data.data);
+      if (results[1].status === 'fulfilled') setUsers(results[1].value.data.data || []);
+      if (results[2].status === 'fulfilled') setQuizzes(results[2].value.data.data || []);
+      if (results[3].status === 'fulfilled') setAttempts(results[3].value.data.data || []);
     } catch (err) {
       console.error('Failed to load admin metrics:', err);
     } finally {
@@ -534,10 +535,10 @@ const AdminPanel = () => {
 
                     <td className="py-3 px-4">
                       <span className="font-medium text-[var(--text-primary)] block">
-                        {q.creator?.name || 'AI Generator / System'}
+                        {q.createdBy?.name || 'AI Generator / System'}
                       </span>
                       <span className="text-[10px] text-[var(--text-muted)]">
-                        {q.creator?.email || 'System'}
+                        {q.createdBy?.email || 'System'}
                       </span>
                     </td>
 
@@ -558,7 +559,7 @@ const AdminPanel = () => {
                     </td>
 
                     <td className="py-3 px-4 font-semibold text-[var(--text-primary)]">
-                      {q.passPercentage}%
+                      {q.passingPercentage || 40}%
                     </td>
 
                     <td className="py-3 px-4 font-bold text-blue-500">
