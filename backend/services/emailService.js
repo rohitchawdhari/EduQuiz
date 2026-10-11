@@ -618,6 +618,64 @@ const sendTestEmail = async (to = process.env.EMAIL_USER) => {
   });
 };
 
+/**
+ * 8. Live Battle Invitation Email
+ */
+const sendBattleInviteEmail = async ({
+  to,
+  hostName = "A classmate",
+  roomCode,
+  title = "Live Quiz Battle",
+  subject = "General Knowledge",
+}) => {
+  const clientUrl = process.env.CLIENT_URL || "https://edu-quiz-indol.vercel.app";
+  const joinUrl = `${clientUrl}/competitions/arena/${roomCode}`;
+
+  const contentHtml = `
+    <div class="card-grid">
+      <p style="font-size: 15px; margin: 0 0 16px 0;">
+        <strong style="color: #f59e0b;">${hostName}</strong> has challenged you to an exciting <strong>1v1 Live Quiz Battle</strong> on EduQuiz!
+      </p>
+
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+        <tr>
+          <td style="padding: 8px 0; color: #94a3b8;">Battle Topic:</td>
+          <td style="padding: 8px 0; font-weight: bold; text-align: right; color: #38bdf8;">${subject}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #94a3b8;">Match Title:</td>
+          <td style="padding: 8px 0; font-weight: bold; text-align: right;">${title}</td>
+        </tr>
+        <tr>
+          <td style="padding: 8px 0; color: #94a3b8;">Room Code:</td>
+          <td style="padding: 8px 0; font-weight: bold; font-family: monospace; font-size: 18px; color: #ec4899; text-align: right;">${roomCode}</td>
+        </tr>
+      </table>
+
+      <div style="margin-top: 20px; padding: 14px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 12px; text-align: center;">
+        <span style="font-size: 12px; color: #cbd5e1;">Click below or enter code <strong style="color: #ec4899;">${roomCode}</strong> in the lobby to enter the arena.</span>
+      </div>
+    </div>
+  `;
+
+  const html = baseEmailTemplate({
+    headline: "You're Invited to a Live Battle!",
+    subtitle: `${hostName} is waiting for you in the arena!`,
+    badgeText: "Live Battle Challenge",
+    badgeColor: "#ec4899",
+    contentHtml,
+    ctaText: "⚔️ Enter Battle Room Now",
+    ctaUrl: joinUrl,
+  });
+
+  return sendMailSafe({
+    to,
+    subject: `⚔️ Battle Challenge: ${hostName} invited you to room #${roomCode}!`,
+    text: `${hostName} invited you to a live quiz battle. Join now at: ${joinUrl}`,
+    html,
+  });
+};
+
 module.exports = {
   sendWelcomeEmail,
   sendLoginNotification,
@@ -625,5 +683,6 @@ module.exports = {
   sendQuizResultEmail,
   sendCertificateEmail,
   sendCompetitionResultEmail,
+  sendBattleInviteEmail,
   sendTestEmail,
 };

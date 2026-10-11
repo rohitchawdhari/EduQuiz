@@ -240,9 +240,78 @@ const deleteQuiz = async (req, res) => {
   }
 };
 
+// @desc    Get all student submissions for a specific quiz (Teacher & Admin oversight)
+// @route   GET /api/quizzes/:id/submissions
+// @access  Private (Teacher, Admin)
+const getQuizSubmissions = async (req, res) => {
+  try {
+    const Attempt = require("../models/Attempt");
+    const quiz = await Quiz.findById(req.params.id);
+    if (!quiz) {
+      return res.status(404).json({ success: false, message: "Quiz not found" });
+    }
+
+    const attempts = await Attempt.find({
+      quizId: req.params.id,
+      status: { $in: ["SUBMITTED", "AUTO_SUBMITTED"] },
+    })
+      .populate("userId", "name email role avatar")
+      .sort({ submittedAt: -1 });
+
+    const totalSubmissions = attempts.length;
+    const passedCount = attempts.filter((a) => a.isPassed).length;
+    const failedCount = totalSubmissions - passedCount;
+    const avgScore = totalSubmissions > 0
+      ? Math.round(attempts.reduce((acc, a) => acc + (a.percentage || 0), 0) / totalSubmissions)
+      : 0;
+
+    return res.json({
+      success: true,
+      data: {
+        quiz: {
+          _id: quiz._id,
+          title: quiz.title,
+          subject: quiz.subject,
+          totalQuestions: quiz.totalQuestions,
+          passingPercentage: quiz.passingPercentage,
+          durationMinutes: quiz.durationMinutes,
+        },
+        summary: {
+          totalSubmissions,
+          passedCount,
+          failedCount,
+          averageScore: avgScore,
+        },
+        submissions: attempts.map((a) => ({
+          attemptId: a._id,
+          student: a.userId ? {
+            _id: a.userId._id,
+            name: a.userId.name,
+            email: a.userId.email,
+            role: a.userId.role,
+          } : { name: "Former Student", email: "N/A" },
+          score: a.score,
+          totalPoints: a.totalPoints,
+          percentage: Math.round(a.percentage || 0),
+          isPassed: a.isPassed,
+          status: a.status,
+          submittedAt: a.submittedAt,
+          timeTakenSeconds: a.timeTakenSeconds,
+          violationsCount: a.violations ? a.violations.length : 0,
+          violations: a.violations || [],
+        })),
+      },
+    });
+  } catch (error) {
+    console.error("Submissions Error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   createQuiz,
   getQuizzes,
   getQuizById,
   deleteQuiz,
+  getQuizSubmissions,
 };

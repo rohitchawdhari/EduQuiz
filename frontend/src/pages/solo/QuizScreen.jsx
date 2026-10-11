@@ -10,7 +10,11 @@ import {
   RotateCcw, 
   CheckCircle2, 
   AlertTriangle,
-  HelpCircle
+  HelpCircle,
+  Camera,
+  CameraOff,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 
 const QuizScreen = () => {
@@ -32,14 +36,98 @@ const QuizScreen = () => {
   const [timeLeftSeconds, setTimeLeftSeconds] = useState(0);
   const timerRef = useRef(null);
 
-  // Anti-cheating state
+  // Anti-cheating & Live Camera Proctoring state
   const [violations, setViolations] = useState(0);
   const [showViolationModal, setShowViolationModal] = useState(false);
   const [violationMessage, setViolationMessage] = useState('');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Proctor Camera & Fullscreen State
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
   const [isResumed, setIsResumed] = useState(false);
+
+  // Initialize Webcam for Proctoring
+  useEffect(() => {
+    if (loading || !attemptId) return;
+
+    const startCamera = async () => {
+      try {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 280, height: 210, facingMode: 'user' },
+            audio: false,
+          });
+          streamRef.current = stream;
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+          }
+          setCameraActive(true);
+        }
+      } catch (err) {
+        console.warn('Proctor camera unavailable or permission denied:', err.message);
+        setCameraActive(false);
+      }
+    };
+
+    startCamera();
+
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [loading, attemptId]);
+
+  // Request Fullscreen Helper
+  const toggleFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        setIsFullscreen(true);
+      } else {
+        await document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    } catch (e) {
+      console.warn('Fullscreen toggle:', e);
+    }
+  };
+
+  // Listen for Fullscreen Changes (Anti-cheating)
+  useEffect(() => {
+    if (!attemptId || isSubmitting) return;
+
+    const handleFullscreenChange = async () => {
+      const isNowFs = !!document.fullscreenElement;
+      setIsFullscreen(isNowFs);
+
+      if (!isNowFs && attemptId && !isSubmitting) {
+        try {
+          const res = await API.post(`/attempts/${attemptId}/violation`, {
+            type: 'FULLSCREEN_EXIT',
+            details: 'Exam exited fullscreen mode',
+          });
+          const count = res.data.violationCount;
+          setViolations(count);
+          setViolationMessage(`Fullscreen exited! Warning ${count}/3. Please remain in Fullscreen mode during the examination.`);
+          setShowViolationModal(true);
+          if (res.data.shouldAutoSubmit) {
+            handleFinalSubmit(true);
+          }
+        } catch (e) {
+          console.error('Fullscreen violation log error:', e);
+        }
+      }
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, [attemptId, isSubmitting]);
 
   // Initialize Exam Attempt (Start new or Resume active session)
   useEffect(() => {
@@ -539,6 +627,50 @@ const QuizScreen = () => {
           </div>
         </div>
       )}
+
+      {/* Floating Live AI Proctor Camera & Fullscreen Widget */}
+      <div className="fixed bottom-5 right-5 z-40 p-2.5 rounded-2xl bg-[var(--bg-card)] border-2 border-rose-500/50 shadow-2xl flex flex-col items-center backdrop-blur-md">
+        <div className="relative w-36 h-28 rounded-xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
+          {cameraActive ? (
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover transform -scale-x-100"
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center text-center p-2 text-rose-400">
+              <CameraOff className="w-5 h-5 mb-1" />
+              <span className="text-[9px] font-bold">Proctor Camera Standby</span>
+            </div>
+          )}
+
+          {/* Glowing Live Badge */}
+          <div className="absolute top-1.5 left-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/75 text-rose-400 text-[9px] font-black uppercase tracking-wider backdrop-blur-sm">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+            AI Proctor Live
+          </div>
+        </div>
+
+        {/* Fullscreen Button */}
+        <button
+          type="button"
+          onClick={toggleFullscreen}
+          className="mt-2 w-full py-1 text-[10px] font-bold rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow flex items-center justify-center gap-1 cursor-pointer transition-colors"
+          title="Toggle Fullscreen Mode"
+        >
+          {isFullscreen ? (
+            <>
+              <Minimize2 className="w-3 h-3" /> Exit Fullscreen
+            </>
+          ) : (
+            <>
+              <Maximize2 className="w-3 h-3" /> Enter Fullscreen
+            </>
+          )}
+        </button>
+      </div>
 
     </div>
   );

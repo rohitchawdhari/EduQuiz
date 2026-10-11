@@ -140,8 +140,43 @@ const getCompetitions = async (req, res) => {
   }
 };
 
+// @desc    Invite an opponent to battle room via email
+// @route   POST /api/competitions/invite
+// @access  Private
+const inviteOpponentByEmail = async (req, res) => {
+  try {
+    const { roomCode, email } = req.body;
+    if (!roomCode || !email) {
+      return res.status(400).json({ success: false, message: "Room code and email are required" });
+    }
+
+    const competition = await Competition.findOne({ roomCode: roomCode.trim().toUpperCase() });
+    if (!competition) {
+      return res.status(404).json({ success: false, message: "Competition room not found" });
+    }
+
+    const { sendBattleInviteEmail } = require("../services/emailService");
+    await sendBattleInviteEmail({
+      to: email.trim(),
+      hostName: req.user.name || "A classmate",
+      roomCode: competition.roomCode,
+      title: competition.title || "Live Quiz Battle",
+      subject: competition.subject || "Competitive Exam",
+    });
+
+    return res.json({
+      success: true,
+      message: `Battle invitation dispatched successfully to ${email}!`,
+    });
+  } catch (error) {
+    console.error("Invite error:", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 module.exports = {
   createCompetition,
   getCompetitionByCode,
   getCompetitions,
+  inviteOpponentByEmail,
 };

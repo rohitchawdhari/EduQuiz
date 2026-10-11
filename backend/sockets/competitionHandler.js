@@ -5,6 +5,28 @@ const { sendCompetitionResultEmail } = require("../services/emailService");
 // Active server-side synchronized room timers: roomCode -> { timeout, deadline, questionIndex }
 const activeRoomTimers = new Map();
 
+/**
+ * Helper to emit a complete, sanitized, stringified room update
+ */
+const emitRoomUpdated = (io, competition) => {
+  io.to(competition.roomCode).emit("room_updated", {
+    competitionId: competition._id,
+    roomCode: competition.roomCode,
+    title: competition.title,
+    subject: competition.subject,
+    status: competition.status,
+    hostId: competition.host ? competition.host.toString() : null,
+    players: competition.players.map((p) => ({
+      user: p.user ? p.user.toString() : p.socketId,
+      name: p.name || "Competitor",
+      isReady: !!p.isReady,
+      score: p.score || 0,
+      correctCount: p.correctCount || 0,
+      socketId: p.socketId,
+    })),
+  });
+};
+
 const registerCompetitionHandlers = (io, socket) => {
   // 1. Join Competition Room
   socket.on("join_room", async ({ roomCode, userId: fallbackId, name: fallbackName }) => {
@@ -72,14 +94,7 @@ const registerCompetitionHandlers = (io, socket) => {
       await competition.save();
 
       // Broadcast room update to all players
-      io.to(code).emit("room_updated", {
-        competitionId: competition._id,
-        roomCode: competition.roomCode,
-        title: competition.title,
-        status: competition.status,
-        players: competition.players,
-        hostId: competition.host,
-      });
+      emitRoomUpdated(io, competition);
 
       console.log(`⚡ Player ${playerName} joined room ${code}`);
     } catch (error) {
@@ -97,16 +112,13 @@ const registerCompetitionHandlers = (io, socket) => {
       if (!competition) return;
 
       const player = competition.players.find(
-        (p) => p.user.toString() === verifiedUserId.toString()
+        (p) => p.user && p.user.toString() === verifiedUserId.toString()
       );
       if (player) {
         player.isReady = !player.isReady;
         await competition.save();
 
-        io.to(code).emit("room_updated", {
-          players: competition.players,
-          status: competition.status,
-        });
+        emitRoomUpdated(io, competition);
       }
     } catch (error) {
       console.error("Socket toggle_ready error:", error);

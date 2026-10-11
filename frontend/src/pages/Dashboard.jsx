@@ -24,7 +24,11 @@ import {
   Layers,
   ChevronRight,
   RotateCcw,
-  GraduationCap
+  GraduationCap,
+  FileText,
+  X,
+  CheckCircle,
+  XCircle
 } from 'lucide-react';
 
 const CATEGORIES = [
@@ -67,6 +71,22 @@ const Dashboard = () => {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedDifficulty, setSelectedDifficulty] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Teacher / Admin Exam Submissions Tracking
+  const [selectedQuizSubmissions, setSelectedQuizSubmissions] = useState(null);
+  const [submissionsLoading, setSubmissionsLoading] = useState(false);
+
+  const handleViewSubmissions = async (quizId) => {
+    setSubmissionsLoading(true);
+    try {
+      const res = await API.get(`/quizzes/${quizId}/submissions`);
+      setSelectedQuizSubmissions(res.data.data);
+    } catch (err) {
+      alert('Failed to load student submissions: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setSubmissionsLoading(false);
+    }
+  };
 
   // Fetch published ready quizzes & check active attempt
   useEffect(() => {
@@ -365,17 +385,31 @@ const Dashboard = () => {
                       </span>
                     </div>
 
-                    <Link
-                      to={`/quiz/attempt/${quiz._id}`}
-                      className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-md transition-all hover:scale-105 ${
-                        isCurrentlyActive
-                          ? 'btn-gradient-battle'
-                          : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20'
-                      }`}
-                    >
-                      <Play className="w-3.5 h-3.5 fill-current" />
-                      {isCurrentlyActive ? 'Resume Exam' : 'Attempt Exam'}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      {(user?.role === 'teacher' || user?.role === 'admin') && (
+                        <button
+                          type="button"
+                          onClick={() => handleViewSubmissions(quiz._id)}
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow transition-all cursor-pointer"
+                          title="View student results and who submitted"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          Student Results
+                        </button>
+                      )}
+
+                      <Link
+                        to={`/quiz/attempt/${quiz._id}`}
+                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-md transition-all hover:scale-105 ${
+                          isCurrentlyActive
+                            ? 'btn-gradient-battle'
+                            : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20'
+                        }`}
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        {isCurrentlyActive ? 'Resume Exam' : 'Attempt Exam'}
+                      </Link>
+                    </div>
                   </div>
                 </div>
               );
@@ -584,6 +618,164 @@ const Dashboard = () => {
           ))}
         </div>
       </div>
+      {/* ============================================================== */}
+      {/* TEACHER / ADMIN EXAM SUBMISSIONS & STUDENT RESULTS MODAL */}
+      {/* ============================================================== */}
+      {selectedQuizSubmissions && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-3xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            
+            {/* Header */}
+            <div className="p-6 border-b border-[var(--border-subtle)] flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded bg-purple-500/10 border border-purple-500/20">
+                    Faculty Gradebook
+                  </span>
+                  <span className="text-xs text-[var(--text-muted)] font-semibold">
+                    Passing: {selectedQuizSubmissions.quiz.passingPercentage}%
+                  </span>
+                </div>
+                <h3 className="text-xl font-black text-[var(--text-primary)] mt-1">
+                  {selectedQuizSubmissions.quiz.title}
+                </h3>
+                <p className="text-xs text-[var(--text-secondary)]">
+                  Subject: <strong className="text-blue-500">{selectedQuizSubmissions.quiz.subject}</strong> • {selectedQuizSubmissions.quiz.totalQuestions} Questions • {selectedQuizSubmissions.quiz.durationMinutes} Minutes
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setSelectedQuizSubmissions(null)}
+                className="p-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] rounded-xl hover:bg-slate-200/50 dark:hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content Body */}
+            <div className="p-6 overflow-y-auto space-y-6 flex-1">
+              
+              {/* Summary Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3.5 rounded-2xl bg-[var(--bg-main)] border border-[var(--border-subtle)]">
+                  <span className="text-[10px] uppercase font-bold text-[var(--text-muted)]">Students Submitted</span>
+                  <h4 className="text-2xl font-black text-[var(--text-primary)] mt-1">
+                    {selectedQuizSubmissions.summary.totalSubmissions}
+                  </h4>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-[var(--bg-main)] border border-[var(--border-subtle)]">
+                  <span className="text-[10px] uppercase font-bold text-emerald-500">Passed Students</span>
+                  <h4 className="text-2xl font-black text-emerald-500 mt-1">
+                    {selectedQuizSubmissions.summary.passedCount}
+                  </h4>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-[var(--bg-main)] border border-[var(--border-subtle)]">
+                  <span className="text-[10px] uppercase font-bold text-rose-500">Failed Students</span>
+                  <h4 className="text-2xl font-black text-rose-500 mt-1">
+                    {selectedQuizSubmissions.summary.failedCount}
+                  </h4>
+                </div>
+
+                <div className="p-3.5 rounded-2xl bg-[var(--bg-main)] border border-[var(--border-subtle)]">
+                  <span className="text-[10px] uppercase font-bold text-blue-500">Class Average</span>
+                  <h4 className="text-2xl font-black text-blue-500 mt-1">
+                    {selectedQuizSubmissions.summary.averageScore}%
+                  </h4>
+                </div>
+              </div>
+
+              {/* Student Submissions Table */}
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)] mb-3 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-purple-500" />
+                  Student Submissions List ({selectedQuizSubmissions.submissions.length})
+                </h4>
+
+                {selectedQuizSubmissions.submissions.length === 0 ? (
+                  <div className="p-8 rounded-2xl bg-[var(--bg-main)] border border-[var(--border-subtle)] text-center text-xs text-[var(--text-muted)]">
+                    No students have submitted this examination yet.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-2xl border border-[var(--border-subtle)]">
+                    <table className="w-full text-left text-xs text-[var(--text-secondary)]">
+                      <thead className="bg-[var(--bg-main)] text-[var(--text-muted)] uppercase text-[10px] tracking-wider border-b border-[var(--border-subtle)]">
+                        <tr>
+                          <th className="py-3 px-4">Student</th>
+                          <th className="py-3 px-4">Email</th>
+                          <th className="py-3 px-4">Score</th>
+                          <th className="py-3 px-4">Percentage</th>
+                          <th className="py-3 px-4">Result</th>
+                          <th className="py-3 px-4">Proctor Violations</th>
+                          <th className="py-3 px-4 text-right">Submitted At</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--border-subtle)]">
+                        {selectedQuizSubmissions.submissions.map((sub) => (
+                          <tr key={sub.attemptId} className="hover:bg-slate-200/40 dark:hover:bg-white/5 transition-colors">
+                            <td className="py-3 px-4 font-bold text-[var(--text-primary)]">
+                              {sub.student.name}
+                            </td>
+                            <td className="py-3 px-4 text-[var(--text-muted)]">
+                              {sub.student.email}
+                            </td>
+                            <td className="py-3 px-4 font-bold text-[var(--text-primary)]">
+                              {sub.score} / {sub.totalPoints}
+                            </td>
+                            <td className="py-3 px-4 font-bold text-[var(--text-primary)]">
+                              {sub.percentage}%
+                            </td>
+                            <td className="py-3 px-4">
+                              {sub.isPassed ? (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                  <CheckCircle className="w-3 h-3" /> PASSED
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-500 border border-rose-500/30">
+                                  <XCircle className="w-3 h-3" /> FAILED
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4">
+                              {sub.violationsCount > 0 ? (
+                                <span className="text-amber-500 font-bold text-[11px]">
+                                  ⚠️ {sub.violationsCount} warnings
+                                </span>
+                              ) : (
+                                <span className="text-emerald-500 text-[11px] font-semibold">
+                                  Clean (0)
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right text-[11px] text-[var(--text-muted)]">
+                              {sub.submittedAt ? new Date(sub.submittedAt).toLocaleString() : 'Recent'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-main)] flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedQuizSubmissions(null)}
+                className="px-5 py-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-subtle)] text-xs font-bold text-[var(--text-primary)] hover:border-blue-500/40 cursor-pointer"
+              >
+                Close Gradebook
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getSocket } from '../../services/socket';
+import API from '../../services/api';
 import confetti from 'canvas-confetti';
 import { 
   Users, 
@@ -15,7 +16,12 @@ import {
   AlertCircle,
   Crown,
   ArrowRight,
-  Sparkles
+  Sparkles,
+  Mail,
+  Send,
+  Award,
+  Zap,
+  Target
 } from 'lucide-react';
 
 const CompetitionArena = () => {
@@ -31,6 +37,11 @@ const CompetitionArena = () => {
   // Game States: 'WAITING' | 'ACTIVE' | 'FINISHED'
   const [gameState, setGameState] = useState('WAITING');
 
+  // Email Invite State
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteMsg, setInviteMsg] = useState('');
+
   // Active Question
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [selectedOption, setSelectedOption] = useState(null);
@@ -43,7 +54,32 @@ const CompetitionArena = () => {
   const [lastActivity, setLastActivity] = useState(null);
   const [finishData, setFinishData] = useState(null);
 
-  const isHost = roomData?.hostId === user?._id || roomData?.host === user?._id;
+  const isHost = roomData?.hostId === user?._id || 
+    roomData?.host === user?._id || 
+    (typeof roomData?.host === 'object' && roomData?.host?._id === user?._id);
+
+  // Initial HTTP Fetch of Room Data
+  useEffect(() => {
+    const fetchInitialRoom = async () => {
+      try {
+        const cleanCode = code?.trim().toUpperCase();
+        const res = await API.get(`/competitions/code/${cleanCode}`);
+        const cData = res.data.data;
+        setRoomData(cData);
+        if (cData.status === 'COMPLETED') {
+          setGameState('FINISHED');
+          setFinishData({
+            winner: cData.winner,
+            podium: [...cData.players].sort((a,b) => b.score - a.score).slice(0, 3),
+            fullResults: cData.players,
+          });
+        }
+      } catch (err) {
+        console.warn('Initial room fetch warning:', err.message);
+      }
+    };
+    if (code) fetchInitialRoom();
+  }, [code]);
 
   // Socket Connection Lifecycle
   useEffect(() => {
@@ -55,16 +91,28 @@ const CompetitionArena = () => {
     const socket = getSocket();
     socketRef.current = socket;
 
-    // Join room
-    socket.emit('join_room', {
-      roomCode: code,
+    const joinRoomPayload = {
+      roomCode: code?.trim().toUpperCase(),
       userId: user._id,
       name: user.name,
-    });
+    };
+
+    const emitJoin = () => {
+      socket.emit('join_room', joinRoomPayload);
+    };
+
+    if (socket.connected) {
+      emitJoin();
+    } else {
+      socket.on('connect', emitJoin);
+    }
 
     // Room update event
     socket.on('room_updated', (data) => {
-      setRoomData(data);
+      setRoomData((prev) => ({
+        ...prev,
+        ...data,
+      }));
       if (data.status === 'IN_PROGRESS' || data.status === 'QUESTION_ACTIVE') {
         setGameState('ACTIVE');
       }
@@ -78,7 +126,6 @@ const CompetitionArena = () => {
       setHasAnswered(false);
       setPerQTimeLeft(qPayload.perQuestionTimeSeconds || 20);
 
-      // Reset timer
       if (timerRef.current) clearInterval(timerRef.current);
       timerRef.current = setInterval(() => {
         setPerQTimeLeft((prev) => {
@@ -93,7 +140,7 @@ const CompetitionArena = () => {
 
     // Live Leaderboard Update
     socket.on('live_leaderboard_update', (data) => {
-      setLeaderboard(data.leaderboard);
+      setLeaderboard(data.leaderboard || []);
       setLastActivity(data);
     });
 
@@ -103,11 +150,13 @@ const CompetitionArena = () => {
       setGameState('FINISHED');
       setFinishData(data);
 
-      confetti({
-        particleCount: 150,
-        spread: 80,
-        origin: { y: 0.5 },
-      });
+      try {
+        confetti({
+          particleCount: 150,
+          spread: 80,
+          origin: { y: 0.5 },
+        });
+      } catch (e) {}
     });
 
     // Error
@@ -117,6 +166,7 @@ const CompetitionArena = () => {
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      socket.off('connect', emitJoin);
       socket.off('room_updated');
       socket.off('question_started');
       socket.off('live_leaderboard_update');
@@ -163,22 +213,36 @@ const CompetitionArena = () => {
     });
   };
 
-  // Host advances question
-  const handleNextQuestion = () => {
-    socketRef.current.emit('next_question', {
-      roomCode: code,
-    });
+  // Send Email Invite
+  const handleSendInvite = async (e) => {
+    e.preventDefault();
+    if (!inviteEmail.trim()) return;
+    setInviteLoading(true);
+    setInviteMsg('');
+    try {
+      const res = await API.post('/competitions/invite', {
+        roomCode: code,
+        email: inviteEmail.trim(),
+      });
+      setInviteMsg(res.data.message || 'Invitation sent successfully!');
+      setInviteEmail('');
+      setTimeout(() => setInviteMsg(''), 4000);
+    } catch (err) {
+      alert('Failed to send invite: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setInviteLoading(false);
+    }
   };
 
   if (error) {
     return (
       <div className="max-w-md mx-auto my-16 p-8 glass-panel rounded-2xl text-center">
         <AlertCircle className="w-12 h-12 text-rose-500 mx-auto mb-3" />
-        <h3 className="text-lg font-bold text-white">Room Notice</h3>
-        <p className="text-sm text-gray-400 mt-2 mb-6">{error}</p>
+        <h3 className="text-lg font-bold text-[var(--text-primary)]">Room Notice</h3>
+        <p className="text-sm text-[var(--text-secondary)] mt-2 mb-6">{error}</p>
         <button
           onClick={() => navigate('/competitions')}
-          className="px-5 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-sm"
+          className="btn-gradient-primary px-5 py-2.5 rounded-xl text-white font-semibold text-xs"
         >
           Back to Lobby
         </button>
@@ -186,94 +250,147 @@ const CompetitionArena = () => {
     );
   }
 
+  // Deduplicate and sanitize player list
+  const uniquePlayers = (roomData?.players || []).reduce((acc, current) => {
+    const rawId = current.user 
+      ? (typeof current.user === 'object' ? current.user._id?.toString() : current.user.toString())
+      : current.socketId;
+    
+    if (rawId && !acc.some(p => {
+      const pRawId = p.user 
+        ? (typeof p.user === 'object' ? p.user._id?.toString() : p.user.toString())
+        : p.socketId;
+      return pRawId === rawId;
+    })) {
+      acc.push(current);
+    }
+    return acc;
+  }, []);
+
   // 1. WAITING ROOM PHASE
   if (gameState === 'WAITING') {
+    const currentHostId = typeof roomData?.host === 'object' 
+      ? roomData?.host?._id?.toString() 
+      : (roomData?.hostId || roomData?.host)?.toString();
+
     return (
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 w-full">
-        <div className="glass-panel p-8 sm:p-10 rounded-3xl border border-white/10 shadow-2xl relative">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 w-full">
+        <div className="glass-panel p-6 sm:p-10 rounded-3xl border border-[var(--border-subtle)] shadow-2xl relative">
           
-          {/* Room Code Card */}
-          <div className="text-center pb-8 border-b border-white/10">
-            <span className="text-xs font-bold uppercase tracking-widest text-pink-400">
-              Battle Room Lobby
+          {/* Room Header */}
+          <div className="text-center pb-6 border-b border-[var(--border-subtle)]">
+            <span className="text-xs font-bold uppercase tracking-widest text-amber-500 flex items-center justify-center gap-1.5 mb-1">
+              <Flame className="w-4 h-4 animate-pulse" /> Live Battle Arena Lobby
             </span>
-            <h1 className="text-3xl sm:text-4xl font-extrabold text-white mt-1">
+            <h1 className="text-2xl sm:text-4xl font-extrabold text-[var(--text-primary)] mt-1">
               {roomData?.title || 'Multiplayer Quiz Battle'}
             </h1>
+            <p className="text-xs text-[var(--text-secondary)] mt-1">
+              Topic: <strong className="text-blue-500">{roomData?.subject || 'Competitive Exam'}</strong>
+            </p>
 
-            {/* Room Code Banner */}
-            <div className="mt-6 inline-flex items-center gap-3 px-6 py-3 rounded-2xl bg-gray-900/80 border border-pink-500/40 shadow-inner">
-              <span className="text-xs uppercase tracking-wider text-gray-400 font-semibold">
+            {/* Room Code Card */}
+            <div className="mt-5 inline-flex items-center gap-3 px-6 py-3 rounded-2xl bg-[var(--bg-main)] border border-amber-500/40 shadow-inner">
+              <span className="text-xs uppercase tracking-wider text-[var(--text-muted)] font-semibold">
                 Room Code:
               </span>
-              <span className="font-mono text-2xl font-black text-pink-400 tracking-wider">
+              <span className="font-mono text-2xl font-black text-amber-500 tracking-wider">
                 {code}
               </span>
               <button
                 type="button"
                 onClick={handleCopyCode}
-                className="p-1.5 rounded-lg bg-pink-500/20 text-pink-300 hover:bg-pink-500/30 transition-colors ml-2"
-                title="Copy code"
+                className="p-1.5 rounded-lg bg-amber-500/20 text-amber-600 dark:text-amber-300 hover:bg-amber-500/30 transition-colors ml-2 cursor-pointer"
+                title="Copy Room Code"
               >
-                {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                {copied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
               </button>
             </div>
-            <p className="text-xs text-gray-400 mt-2">Share this code with your friends to join</p>
+            <p className="text-[11px] text-[var(--text-muted)] mt-1.5">Share this code with your opponent or invite them via email below</p>
           </div>
 
-            {/* Joined Players List */}
-            <div className="py-8">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-gray-300 flex items-center gap-2">
-                  <Users className="w-4 h-4 text-indigo-400" />
-                  Players Joined ({
-                    (roomData?.players || []).filter((p, i, arr) => {
-                      const uid = typeof p.user === 'object' ? p.user?._id : p.user;
-                      return arr.findIndex(x => (typeof x.user === 'object' ? x.user?._id : x.user) === uid) === i;
-                    }).length || 1
-                  })
-                </h3>
-                <span className="text-xs text-gray-400">
-                  Waiting for host to start...
-                </span>
+          {/* Email Invite Box */}
+          <div className="py-6 border-b border-[var(--border-subtle)]">
+            <form onSubmit={handleSendInvite} className="max-w-xl mx-auto">
+              <label className="block text-xs font-bold text-[var(--text-primary)] uppercase mb-2 flex items-center gap-1.5">
+                <Mail className="w-3.5 h-3.5 text-blue-500" />
+                Invite Opponent Directly via Email:
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  placeholder="Enter opponent's email (e.g. friend@gmail.com)..."
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  className="flex-1 px-4 py-2 rounded-xl bg-[var(--bg-main)] border border-[var(--border-subtle)] text-xs text-[var(--text-primary)] focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  type="submit"
+                  disabled={inviteLoading || !inviteEmail.trim()}
+                  className="btn-gradient-primary px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow disabled:opacity-50 cursor-pointer"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  {inviteLoading ? 'Sending...' : 'Send Invite Link'}
+                </button>
               </div>
+              {inviteMsg && (
+                <p className="text-xs text-emerald-500 font-semibold mt-2 flex items-center gap-1.5 animate-in fade-in">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> {inviteMsg}
+                </p>
+              )}
+            </form>
+          </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {(roomData?.players || [])
-                  .filter((p, i, arr) => {
-                    const uid = typeof p.user === 'object' ? p.user?._id : p.user;
-                    return arr.findIndex(x => (typeof x.user === 'object' ? x.user?._id : x.user) === uid) === i;
-                  })
-                  .map((player) => {
-                    const playerUserId = typeof player.user === 'object' ? player.user?._id : player.user;
-                    const hostId = typeof roomData.host === 'object' ? roomData.host?._id : (roomData.hostId || roomData.host);
-                    const isPlayerHost = playerUserId === hostId;
-                    const isCurrentUser = playerUserId === user?._id;
-                    return (
-                      <div
-                        key={playerUserId || player.socketId}
-                    className="p-4 rounded-2xl bg-gray-900/60 border border-white/10 flex items-center justify-between"
+          {/* Joined Players List */}
+          <div className="py-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)] flex items-center gap-2">
+                <Users className="w-4 h-4 text-blue-500" />
+                Contestants In Lobby ({uniquePlayers.length})
+              </h3>
+              <span className="text-xs text-[var(--text-muted)]">
+                {uniquePlayers.length < 2 ? 'Waiting for opponent to join...' : 'Both ready for battle!'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {uniquePlayers.map((player) => {
+                const playerUserId = player.user 
+                  ? (typeof player.user === 'object' ? player.user._id?.toString() : player.user.toString())
+                  : player.socketId;
+
+                const isPlayerHost = currentHostId && playerUserId === currentHostId;
+                const isCurrentUser = user?._id && playerUserId === user._id.toString();
+
+                return (
+                  <div
+                    key={playerUserId || player.socketId}
+                    className="p-4 rounded-2xl bg-[var(--bg-main)] border border-[var(--border-subtle)] flex items-center justify-between shadow-sm"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 text-white font-bold text-xs flex items-center justify-center uppercase">
-                        {player.name.charAt(0)}
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-amber-500 text-white font-bold text-sm flex items-center justify-center uppercase shadow">
+                        {player.name ? player.name.charAt(0) : 'P'}
                       </div>
                       <div>
                         <div className="flex items-center gap-1.5">
-                          <span className="font-semibold text-sm text-white">{player.name}</span>
+                          <span className="font-bold text-sm text-[var(--text-primary)]">
+                            {player.name || 'Competitor'}
+                          </span>
                           {isPlayerHost && (
-                            <Crown className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                            <span className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-500">
+                              <Crown className="w-3 h-3 fill-amber-500" /> Host
+                            </span>
                           )}
                         </div>
-                        <span className="text-[10px] text-gray-400">
-                          {player.user === user._id ? '(You)' : 'Player'}
+                        <span className="text-[11px] text-[var(--text-muted)]">
+                          {isCurrentUser ? '(You)' : 'Opponent'}
                         </span>
                       </div>
                     </div>
 
-                    <span className="flex items-center gap-1 text-xs font-semibold text-emerald-400">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                      Ready
+                    <span className="flex items-center gap-1.5 text-xs font-bold text-emerald-500">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                      In Room
                     </span>
                   </div>
                 );
@@ -282,11 +399,11 @@ const CompetitionArena = () => {
           </div>
 
           {/* Controls Footer */}
-          <div className="pt-6 border-t border-white/10 flex flex-wrap items-center justify-between gap-4">
+          <div className="pt-6 border-t border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-4">
             <button
               type="button"
               onClick={() => navigate('/competitions')}
-              className="px-4 py-2 text-xs font-semibold text-gray-400 hover:text-white transition-colors"
+              className="px-4 py-2 text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
             >
               Leave Room
             </button>
@@ -295,14 +412,14 @@ const CompetitionArena = () => {
               <button
                 type="button"
                 onClick={handleStartQuiz}
-                className="flex items-center gap-2 px-8 py-3.5 rounded-2xl font-bold text-white bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 shadow-xl shadow-pink-600/25 text-sm transition-all hover:scale-105"
+                className="btn-gradient-battle flex items-center gap-2 px-8 py-3 rounded-2xl font-bold text-white shadow-xl text-sm transition-all hover:scale-105 cursor-pointer"
               >
                 <Play className="w-4 h-4 fill-current" />
-                Start Competition Battle
+                Launch Live Battle!
               </button>
             ) : (
-              <div className="text-xs text-indigo-400 font-medium animate-pulse flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-indigo-400" />
+              <div className="text-xs text-blue-500 font-bold animate-pulse flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-blue-500" />
                 Waiting for host to launch the battle...
               </div>
             )}
@@ -313,168 +430,97 @@ const CompetitionArena = () => {
     );
   }
 
-  // 2. ACTIVE LIVE QUIZ PHASE
-  if (gameState === 'ACTIVE') {
-    const totalQ = currentQuestion?.totalQuestions || 10;
-    const qIndex = (currentQuestion?.questionIndex || 0) + 1;
-    const progressPercent = ((currentQuestion?.perQuestionTimeSeconds - perQTimeLeft) / currentQuestion?.perQuestionTimeSeconds) * 100;
+  // 2. ACTIVE LIVE GAME PHASE
+  if (gameState === 'ACTIVE' && currentQuestion) {
+    const qIndex = (currentQuestion.questionIndex || 0) + 1;
+    const totalQ = currentQuestion.totalQuestions || 10;
+    const timeRatio = perQTimeLeft / (currentQuestion.perQuestionTimeSeconds || 20);
 
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 w-full flex flex-col flex-1">
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 w-full">
         
-        {/* Synchronized Header */}
-        <div className="glass-panel px-6 py-4 rounded-2xl flex items-center justify-between gap-4 mb-6 border border-white/10">
-          <div>
-            <span className="text-xs font-bold text-pink-400 uppercase tracking-wider">
+        {/* Top Battle HUD */}
+        <div className="glass-panel p-4 rounded-2xl border border-[var(--border-subtle)] flex items-center justify-between mb-6 shadow-md">
+          <div className="flex items-center gap-3">
+            <span className="px-3 py-1 rounded-xl bg-blue-500/20 text-blue-600 dark:text-cyan-400 font-bold text-xs">
               Question {qIndex} of {totalQ}
             </span>
-            <h2 className="text-lg font-bold text-white">Live Multiplayer Arena</h2>
+            <span className="text-xs text-[var(--text-muted)] font-semibold hidden sm:inline">
+              Room #{code}
+            </span>
           </div>
 
-          {/* Per-Question Live Countdown */}
-          <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-pink-500/20 border border-pink-500/40 font-mono font-bold text-sm text-pink-300">
-            <Clock className="w-4 h-4" />
-            <span>00:{String(perQTimeLeft).padStart(2, '0')}</span>
+          {/* Synchronized Timer */}
+          <div className="flex items-center gap-2">
+            <Clock className={`w-4 h-4 ${perQTimeLeft <= 5 ? 'text-rose-500 animate-ping' : 'text-amber-500'}`} />
+            <span className={`font-mono font-black text-lg ${perQTimeLeft <= 5 ? 'text-rose-500 animate-pulse' : 'text-[var(--text-primary)]'}`}>
+              {perQTimeLeft}s
+            </span>
           </div>
         </div>
 
-        {/* Timer Progress Bar */}
-        <div className="w-full h-1.5 bg-gray-800 rounded-full mb-6 overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-pink-500 to-indigo-500 transition-all duration-1000 linear"
-            style={{ width: `${100 - progressPercent}%` }}
-          />
-        </div>
+        {/* Question Card */}
+        <div className="glass-panel p-6 sm:p-8 rounded-3xl border border-[var(--border-subtle)] shadow-xl mb-6">
+          <h2 className="text-lg sm:text-2xl font-bold text-[var(--text-primary)] leading-snug mb-8">
+            {currentQuestion.questionText}
+          </h2>
 
-        {/* Main Grid: Question & Live Leaderboard */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1">
-          
-          {/* Active Question Box */}
-          <div className="lg:col-span-2 glass-panel p-6 sm:p-8 rounded-3xl border border-white/10 flex flex-col justify-between">
-            <div>
-              <div className="pb-4 mb-6 border-b border-white/5 flex items-center justify-between text-xs text-gray-400">
-                <span className="uppercase font-semibold tracking-wider text-indigo-400">
-                  {currentQuestion?.difficulty} Question
-                </span>
-                <span>Speed Bonus Active: +{Math.round(perQTimeLeft * 2.5)} pts</span>
-              </div>
-
-              <h3 className="text-xl sm:text-2xl font-bold text-white mb-8 leading-snug">
-                {currentQuestion?.questionText}
-              </h3>
-
-              {/* Options */}
-              <div className="space-y-3">
-                {currentQuestion?.options.map((opt, idx) => {
-                  const letter = String.fromCharCode(65 + idx);
-                  const isSelected = selectedOption === opt;
-
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      disabled={hasAnswered || perQTimeLeft <= 0}
-                      onClick={() => handleAnswerSubmit(opt)}
-                      className={`w-full p-4 rounded-2xl border text-left flex items-center gap-3.5 transition-all ${
-                        isSelected
-                          ? 'bg-pink-600/30 border-pink-500 text-white shadow-lg shadow-pink-600/20'
-                          : 'bg-gray-900/40 border-white/10 text-gray-300 hover:bg-white/5 disabled:opacity-60'
-                      }`}
-                    >
-                      <div className={`w-8 h-8 rounded-xl font-bold text-xs flex items-center justify-center flex-shrink-0 ${
-                        isSelected ? 'bg-pink-600 text-white' : 'bg-gray-800 text-gray-400'
-                      }`}>
-                        {letter}
-                      </div>
-                      <span className="text-base font-normal">{opt}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Answer Status / Host Next Control */}
-            <div className="mt-8 pt-6 border-t border-white/5 flex items-center justify-between">
-              {hasAnswered ? (
-                <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4" />
-                  Answer locked in! Waiting for round to end...
-                </span>
-              ) : perQTimeLeft === 0 ? (
-                <span className="text-xs font-semibold text-rose-400">
-                  Time expired for this question!
-                </span>
-              ) : (
-                <span className="text-xs text-gray-400">
-                  Tap your answer quickly for maximum speed bonus points!
-                </span>
-              )}
-
-              {isHost && (
+          {/* Options Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            {currentQuestion.options.map((optText, optIdx) => {
+              const isSelected = selectedOption === optText;
+              return (
                 <button
+                  key={optIdx}
                   type="button"
-                  onClick={handleNextQuestion}
-                  className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl font-bold text-xs text-white bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/20 transition-all ml-auto"
+                  disabled={hasAnswered || perQTimeLeft <= 0}
+                  onClick={() => handleAnswerSubmit(optText)}
+                  className={`p-4 rounded-2xl text-left font-semibold text-xs sm:text-sm transition-all border cursor-pointer ${
+                    isSelected
+                      ? 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-500/25 scale-[1.01]'
+                      : 'bg-[var(--bg-main)] border-[var(--border-subtle)] text-[var(--text-primary)] hover:border-blue-500/40 hover:bg-slate-200/50 dark:hover:bg-white/5'
+                  } disabled:cursor-not-allowed`}
                 >
-                  Next Question
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Right: Live Dynamic Leaderboard */}
-          <div className="glass-panel p-6 rounded-3xl border border-white/10 flex flex-col">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-pink-400 mb-4 flex items-center gap-2">
-              <Trophy className="w-4 h-4 text-amber-400" />
-              Live Leaderboard
-            </h4>
-
-            <div className="space-y-2.5 flex-1 overflow-y-auto">
-              {(leaderboard.length > 0 ? leaderboard : roomData?.players || []).map((pl, idx) => {
-                const rank = pl.rank || idx + 1;
-                const isYou = pl.userId === user._id || pl.user === user._id;
-
-                let badgeColor = 'bg-gray-800 text-gray-400';
-                if (rank === 1) badgeColor = 'bg-amber-500 text-black font-black';
-                else if (rank === 2) badgeColor = 'bg-slate-300 text-black font-bold';
-                else if (rank === 3) badgeColor = 'bg-amber-700 text-white font-bold';
-
-                return (
-                  <div
-                    key={pl.userId || pl.user || idx}
-                    className={`p-3 rounded-2xl flex items-center justify-between transition-all ${
-                      isYou
-                        ? 'bg-indigo-600/20 border border-indigo-500/40 text-white shadow-md'
-                        : 'bg-gray-900/60 border border-white/5 text-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-6 h-6 rounded-lg text-xs flex items-center justify-center ${badgeColor}`}>
-                        {rank}
-                      </div>
-                      <span className="text-xs font-semibold line-clamp-1">
-                        {pl.name} {isYou && '(You)'}
-                      </span>
-                    </div>
-
-                    <span className="font-mono text-xs font-bold text-amber-300">
-                      {pl.score || 0} pts
+                  <div className="flex items-center gap-3">
+                    <span className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
+                      isSelected ? 'bg-white text-blue-600' : 'bg-slate-300/50 dark:bg-white/10 text-[var(--text-muted)]'
+                    }`}>
+                      {String.fromCharCode(65 + optIdx)}
                     </span>
+                    <span>{optText}</span>
                   </div>
-                );
-              })}
-            </div>
-
-            {/* Micro alert for last answered player */}
-            {lastActivity && (
-              <div className="mt-4 p-2.5 rounded-xl bg-white/5 border border-white/10 text-[11px] text-gray-400 text-center animate-fade-in">
-                ⚡ <strong className="text-white">{lastActivity.lastAnsweredBy}</strong> just answered!
-              </div>
-            )}
+                </button>
+              );
+            })}
           </div>
 
+          {hasAnswered && (
+            <p className="text-center text-xs text-emerald-500 font-bold mt-6 flex items-center justify-center gap-1.5 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4" /> Response locked in! Waiting for round completion...
+            </p>
+          )}
         </div>
+
+        {/* Live Mini Leaderboard */}
+        {leaderboard.length > 0 && (
+          <div className="glass-card p-4 rounded-2xl border border-[var(--border-subtle)]">
+            <h4 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-3 flex items-center gap-1.5">
+              <Trophy className="w-3.5 h-3.5 text-amber-500" /> Live Standings
+            </h4>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {leaderboard.map((lb, idx) => (
+                <div key={idx} className="p-2.5 rounded-xl bg-[var(--bg-main)] border border-[var(--border-subtle)] flex items-center justify-between text-xs">
+                  <span className="font-bold text-[var(--text-primary)] truncate max-w-[120px]">
+                    #{lb.rank} {lb.name}
+                  </span>
+                  <span className="font-mono font-bold text-amber-500">
+                    {lb.score} pts
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
       </div>
     );
@@ -482,87 +528,117 @@ const CompetitionArena = () => {
 
   // 3. FINISHED / WINNER PODIUM PHASE
   if (gameState === 'FINISHED' && finishData) {
-    const { winner, podium, fullResults } = finishData;
+    const { winner, podium = [], fullResults = [] } = finishData;
+
+    // Determine current user placement
+    const currentUserId = user?._id?.toString();
+    const sortedList = (fullResults.length > 0 ? fullResults : podium).sort((a, b) => (b.score || 0) - (a.score || 0));
+    const userResult = sortedList.find((p) => {
+      const pId = p.user ? (typeof p.user === 'object' ? p.user._id?.toString() : p.user.toString()) : p.socketId;
+      return pId === currentUserId;
+    });
+
+    const isWinner = winner && (
+      (winner.user && (typeof winner.user === 'object' ? winner.user._id?.toString() : winner.user.toString()) === currentUserId) ||
+      winner.name === user?.name
+    );
+
+    const isDraw = sortedList.length >= 2 && sortedList[0].score === sortedList[1].score && sortedList[0].score > 0;
 
     return (
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10 w-full text-center">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10 w-full text-center">
         
-        {/* Winner Hero Banner */}
-        <div className="glass-panel p-8 sm:p-12 rounded-3xl border border-pink-500/30 shadow-2xl relative overflow-hidden mb-10">
-          <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-amber-500 to-yellow-300 text-black flex items-center justify-center mx-auto mb-4 shadow-xl shadow-amber-500/30">
+        {/* Main Winner Card */}
+        <div className="glass-panel p-8 sm:p-12 rounded-3xl border border-amber-500/40 shadow-2xl relative overflow-hidden mb-8">
+          
+          <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-amber-500 to-yellow-400 text-black flex items-center justify-center mx-auto mb-4 shadow-xl shadow-amber-500/30">
             <Trophy className="w-10 h-10 stroke-[2.5]" />
           </div>
 
-          <span className="text-xs font-bold uppercase tracking-widest text-amber-400">
-            Battle Champion
+          <span className="text-xs font-bold uppercase tracking-widest text-amber-500">
+            {isDraw ? 'Match Result' : 'Battle Champion'}
           </span>
 
-          <h1 className="text-3xl sm:text-5xl font-black text-white mt-1">
-            {winner?.name || 'Top Competitor'}
+          <h1 className="text-3xl sm:text-5xl font-black text-[var(--text-primary)] mt-1">
+            {isDraw ? "It's a Draw! 🤝" : (winner?.name || sortedList[0]?.name || 'Battle Champion')}
           </h1>
 
-          <p className="font-mono text-2xl font-bold text-amber-300 mt-2">
-            {winner?.score} Total Points
+          <p className="font-mono text-2xl font-bold text-amber-500 mt-2">
+            {winner?.score !== undefined ? winner.score : (sortedList[0]?.score || 0)} Total Points
           </p>
 
-          {/* Podium 1st, 2nd, 3rd */}
-          <div className="mt-10 grid grid-cols-3 gap-3 max-w-lg mx-auto items-end">
+          {/* Personalized User Status Banner */}
+          <div className="mt-6 max-w-sm mx-auto p-3 rounded-2xl bg-[var(--bg-main)] border border-[var(--border-subtle)]">
+            {isWinner ? (
+              <span className="text-emerald-500 font-extrabold text-sm flex items-center justify-center gap-1.5">
+                <Crown className="w-4 h-4 fill-emerald-500" /> VICTORY! You won this match! 🎉
+              </span>
+            ) : isDraw ? (
+              <span className="text-amber-500 font-bold text-sm">
+                Both players scored equally! Well matched!
+              </span>
+            ) : (
+              <span className="text-blue-500 font-bold text-sm">
+                Good fight! You scored {userResult?.score || 0} points!
+              </span>
+            )}
+          </div>
+
+          {/* Direct 1v1 Comparison Board */}
+          <div className="mt-8 border-t border-[var(--border-subtle)] pt-6">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] mb-4">
+              Final Scoreboard
+            </h3>
             
-            {/* 2nd Place */}
-            {podium[1] && (
-              <div className="p-4 rounded-2xl bg-gray-800/80 border border-slate-400/30 h-36 flex flex-col justify-end">
-                <span className="text-lg">🥈</span>
-                <h4 className="text-xs font-bold text-white mt-1 line-clamp-1">{podium[1].name}</h4>
-                <p className="text-[11px] text-gray-400 font-mono mt-0.5">{podium[1].score} pts</p>
-                <div className="w-full h-8 bg-slate-500/30 rounded-lg mt-2 flex items-center justify-center text-[10px] font-bold text-slate-300">
-                  #2
-                </div>
-              </div>
-            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-lg mx-auto">
+              {sortedList.slice(0, 4).map((p, idx) => (
+                <div
+                  key={idx}
+                  className={`p-4 rounded-2xl border flex items-center justify-between text-left ${
+                    idx === 0 
+                      ? 'bg-amber-500/10 border-amber-500/40' 
+                      : 'bg-[var(--bg-main)] border-[var(--border-subtle)]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-lg">
+                      {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : '🎖️'}
+                    </span>
+                    <div>
+                      <span className="font-bold text-xs text-[var(--text-primary)] block">
+                        {p.name}
+                      </span>
+                      <span className="text-[10px] text-[var(--text-muted)]">
+                        {p.correctCount || 0} correct answers
+                      </span>
+                    </div>
+                  </div>
 
-            {/* 1st Place */}
-            {podium[0] && (
-              <div className="p-4 rounded-2xl bg-amber-500/20 border border-amber-400/50 h-44 flex flex-col justify-end shadow-xl shadow-amber-500/10">
-                <span className="text-2xl">🥇</span>
-                <h4 className="text-xs font-bold text-white mt-1 line-clamp-1">{podium[0].name}</h4>
-                <p className="text-[11px] text-amber-300 font-mono mt-0.5">{podium[0].score} pts</p>
-                <div className="w-full h-14 bg-amber-500/40 rounded-lg mt-2 flex items-center justify-center text-xs font-black text-amber-200">
-                  #1
+                  <span className="font-mono font-black text-sm text-[var(--text-primary)]">
+                    {p.score || 0} pts
+                  </span>
                 </div>
-              </div>
-            )}
-
-            {/* 3rd Place */}
-            {podium[2] && (
-              <div className="p-4 rounded-2xl bg-gray-800/80 border border-amber-700/30 h-28 flex flex-col justify-end">
-                <span className="text-base">🥉</span>
-                <h4 className="text-xs font-bold text-white mt-1 line-clamp-1">{podium[2].name}</h4>
-                <p className="text-[11px] text-gray-400 font-mono mt-0.5">{podium[2].score} pts</p>
-                <div className="w-full h-6 bg-amber-800/30 rounded-lg mt-2 flex items-center justify-center text-[10px] font-bold text-amber-400">
-                  #3
-                </div>
-              </div>
-            )}
-
+              ))}
+            </div>
           </div>
 
         </div>
 
         {/* Action Buttons */}
-        <div className="flex justify-center gap-4">
+        <div className="flex justify-center gap-3">
           <button
             type="button"
             onClick={() => navigate('/competitions')}
-            className="px-6 py-3 rounded-2xl font-bold text-white bg-gradient-to-r from-pink-600 to-indigo-600 hover:from-pink-500 hover:to-indigo-500 shadow-lg shadow-pink-600/20 text-xs transition-all hover:scale-105"
+            className="btn-gradient-battle px-6 py-3 rounded-2xl font-bold text-white text-xs shadow-md transition-all hover:scale-105 cursor-pointer"
           >
             Play Another Battle
           </button>
           <button
             type="button"
             onClick={() => navigate('/leaderboard')}
-            className="px-6 py-3 rounded-2xl font-bold text-gray-300 glass-card hover:bg-white/10 text-xs transition-colors"
+            className="px-6 py-3 rounded-2xl font-bold text-[var(--text-primary)] bg-[var(--bg-card)] border border-[var(--border-subtle)] hover:border-blue-500/40 text-xs transition-colors cursor-pointer"
           >
-            View Global Rankings
+            Global Rankings
           </button>
         </div>
 
