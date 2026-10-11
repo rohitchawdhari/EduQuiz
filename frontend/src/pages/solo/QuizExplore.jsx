@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import API from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { 
   Search, 
   BrainCircuit, 
@@ -32,6 +33,7 @@ const subjects = [
 const difficulties = ['All', 'Easy', 'Medium', 'Hard', 'Mixed'];
 
 const QuizExplore = () => {
+  const { user } = useAuth();
   const [quizzes, setQuizzes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -178,13 +180,19 @@ const QuizExplore = () => {
                   </span>
                 </div>
 
-                <Link
-                  to={`/quiz/attempt/${quiz._id}`}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white btn-gradient-primary shadow-sm transition-all hover:scale-105"
-                >
-                  <Play className="w-3 h-3 fill-current" />
-                  Attempt
-                </Link>
+                {user?.role !== 'teacher' ? (
+                  <Link
+                    to={`/quiz/attempt/${quiz._id}`}
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white btn-gradient-primary shadow-sm transition-all hover:scale-105"
+                  >
+                    <Play className="w-3 h-3 fill-current" />
+                    Attempt
+                  </Link>
+                ) : (
+                  <span className="text-[11px] font-semibold text-[var(--text-muted)] px-2.5 py-1 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-subtle)]">
+                    Curriculum
+                  </span>
+                )}
               </div>
             </div>
           ))}

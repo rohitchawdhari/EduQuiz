@@ -21,6 +21,14 @@ const startAttempt = async (req, res) => {
       return res.status(404).json({ success: false, message: "Quiz not found" });
     }
 
+    // Role check: Teachers cannot take exams (they manage coursework and review submissions)
+    if (req.user.role === "teacher") {
+      return res.status(403).json({
+        success: false,
+        message: "Instructors and teachers cannot take coursework exams. Please view student submissions from your Dashboard.",
+      });
+    }
+
     // 1. CHECK FOR ACTIVE IN-PROGRESS ATTEMPT (Resumption across refresh / re-login)
     const activeAttempt = await Attempt.findOne({
       quizId: quiz._id,

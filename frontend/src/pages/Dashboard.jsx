@@ -341,6 +341,10 @@ const Dashboard = () => {
               const isCurrentlyActive =
                 activeAttempt && activeAttempt.quizId?.toString() === quiz._id?.toString();
               const teacherName = quiz.createdBy?.name || 'Faculty Instructor';
+              const createdById = quiz.createdBy?._id?.toString() || quiz.createdBy?.toString();
+              const currentUserId = user?._id?.toString();
+              const isMyCreatedExam = !!(createdById && currentUserId && createdById === currentUserId);
+              const canViewSubmissions = user?.role === 'admin' || (user?.role === 'teacher' && isMyCreatedExam);
 
               return (
                 <div
@@ -386,7 +390,7 @@ const Dashboard = () => {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      {(user?.role === 'teacher' || user?.role === 'admin') && (
+                      {canViewSubmissions && (
                         <button
                           type="button"
                           onClick={() => handleViewSubmissions(quiz._id)}
@@ -398,17 +402,25 @@ const Dashboard = () => {
                         </button>
                       )}
 
-                      <Link
-                        to={`/quiz/attempt/${quiz._id}`}
-                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-md transition-all hover:scale-105 ${
-                          isCurrentlyActive
-                            ? 'btn-gradient-battle'
-                            : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20'
-                        }`}
-                      >
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                        {isCurrentlyActive ? 'Resume Exam' : 'Attempt Exam'}
-                      </Link>
+                      {user?.role !== 'teacher' && (
+                        <Link
+                          to={`/quiz/attempt/${quiz._id}`}
+                          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-md transition-all hover:scale-105 ${
+                            isCurrentlyActive
+                              ? 'btn-gradient-battle'
+                              : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20'
+                          }`}
+                        >
+                          <Play className="w-3.5 h-3.5 fill-current" />
+                          {isCurrentlyActive ? 'Resume Exam' : 'Attempt Exam'}
+                        </Link>
+                      )}
+
+                      {user?.role === 'teacher' && !isMyCreatedExam && (
+                        <span className="text-[11px] font-semibold text-[var(--text-muted)] px-2.5 py-1 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-subtle)]">
+                          Faculty Coursework
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -543,17 +555,33 @@ const Dashboard = () => {
                     </span>
                   </div>
 
-                  <Link
-                    to={`/quiz/attempt/${quiz._id}`}
-                    className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-md transition-all hover:scale-105 ${
-                      isCurrentlyActive
-                        ? 'btn-gradient-battle'
-                        : 'btn-gradient-primary'
-                    }`}
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    {isCurrentlyActive ? 'Resume Exam' : 'Attempt Quiz'}
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    {(user?.role === 'admin' || (user?.role === 'teacher' && (quiz.createdBy?._id?.toString() === user?._id?.toString() || quiz.createdBy?.toString() === user?._id?.toString()))) && (
+                      <button
+                        type="button"
+                        onClick={() => handleViewSubmissions(quiz._id)}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white shadow transition-all cursor-pointer"
+                        title="View student results"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        Results
+                      </button>
+                    )}
+
+                    {user?.role !== 'teacher' && (
+                      <Link
+                        to={`/quiz/attempt/${quiz._id}`}
+                        className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-md transition-all hover:scale-105 ${
+                          isCurrentlyActive
+                            ? 'btn-gradient-battle'
+                            : 'btn-gradient-primary'
+                        }`}
+                      >
+                        <Play className="w-3.5 h-3.5 fill-current" />
+                        {isCurrentlyActive ? 'Resume Exam' : 'Attempt Quiz'}
+                      </Link>
+                    )}
+                  </div>
                 </div>
               </div>
             );

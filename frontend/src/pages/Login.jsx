@@ -83,7 +83,8 @@ const Login = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              placeholder="rohit@example.com"
+              autoComplete="email"
+              placeholder="Enter your email"
               className="w-full px-4 py-2.5 rounded-xl input-adaptive text-sm"
             />
           </div>
@@ -97,7 +98,8 @@ const Login = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              placeholder="••••••••"
+              autoComplete="current-password"
+              placeholder="Enter your password"
               className="w-full px-4 py-2.5 rounded-xl input-adaptive text-sm"
             />
           </div>

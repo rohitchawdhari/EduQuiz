@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import API from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
 import { 
   Clock, 
   ShieldAlert, 
@@ -20,6 +21,7 @@ import {
 const QuizScreen = () => {
   const { quizId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -45,43 +47,90 @@ const QuizScreen = () => {
 
   // Proctor Camera & Fullscreen State
   const videoRef = useRef(null);
+  const previewVideoRef = useRef(null);
   const streamRef = useRef(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [proctorVerified, setProctorVerified] = useState(false);
+  const [permissionError, setPermissionError] = useState('');
 
   const [isResumed, setIsResumed] = useState(false);
 
-  // Initialize Webcam for Proctoring
+  // Instructor check - Teachers are barred from attempting coursework tests
   useEffect(() => {
-    if (loading || !attemptId) return;
+    if (user && user.role === 'teacher') {
+      alert('Instructors and teachers cannot take coursework exams. Please review student submissions from your Dashboard.');
+      navigate('/dashboard');
+    }
+  }, [user, navigate]);
 
-    const startCamera = async () => {
-      try {
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 280, height: 210, facingMode: 'user' },
-            audio: false,
-          });
-          streamRef.current = stream;
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-          setCameraActive(true);
+  // Request Camera & Microphone Permissions for AI Proctor
+  const requestCameraAndMicPermissions = async () => {
+    setPermissionError('');
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 480, height: 360, facingMode: 'user' },
+          audio: true,
+        });
+        streamRef.current = stream;
+        setCameraActive(true);
+        if (previewVideoRef.current) {
+          previewVideoRef.current.srcObject = stream;
         }
-      } catch (err) {
-        console.warn('Proctor camera unavailable or permission denied:', err.message);
-        setCameraActive(false);
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } else {
+        setPermissionError('MediaDevices API is not supported in this browser.');
       }
-    };
+    } catch (err) {
+      console.warn('Media permission denied:', err);
+      setPermissionError('Camera and audio permissions are required to begin the exam. Please click "Allow" in your browser prompt.');
+      setCameraActive(false);
+    }
+  };
 
-    startCamera();
+  // Begin exam in full screen mode once camera verified
+  const handleStartExamFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        setIsFullscreen(true);
+      }
+    } catch (err) {
+      console.warn('Fullscreen entry error:', err);
+    }
+    setProctorVerified(true);
+    setTimeout(() => {
+      if (videoRef.current && streamRef.current) {
+        videoRef.current.srcObject = streamRef.current;
+      }
+    }, 150);
+  };
 
+  // Return to fullscreen from violation warning modal
+  const handleReturnToFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        setIsFullscreen(true);
+      }
+      setShowViolationModal(false);
+    } catch (err) {
+      console.warn('Re-enter fullscreen error:', err);
+      setShowViolationModal(false);
+    }
+  };
+
+  // Cleanup media tracks on unmount
+  useEffect(() => {
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
     };
-  }, [loading, attemptId]);
+  }, []);
 
   // Request Fullscreen Helper
   const toggleFullscreen = async () => {
@@ -106,7 +155,7 @@ const QuizScreen = () => {
       const isNowFs = !!document.fullscreenElement;
       setIsFullscreen(isNowFs);
 
-      if (!isNowFs && attemptId && !isSubmitting) {
+      if (!isNowFs && attemptId && !isSubmitting && proctorVerified) {
         try {
           const res = await API.post(`/attempts/${attemptId}/violation`, {
             type: 'FULLSCREEN_EXIT',
@@ -114,7 +163,7 @@ const QuizScreen = () => {
           });
           const count = res.data.violationCount;
           setViolations(count);
-          setViolationMessage(`Fullscreen exited! Warning ${count}/3. Please remain in Fullscreen mode during the examination.`);
+          setViolationMessage(`Fullscreen mode exited! Security Warning ${count}/3. You must remain in Fullscreen mode during the exam.`);
           setShowViolationModal(true);
           if (res.data.shouldAutoSubmit) {
             handleFinalSubmit(true);
@@ -127,7 +176,7 @@ const QuizScreen = () => {
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
-  }, [attemptId, isSubmitting]);
+  }, [attemptId, isSubmitting, proctorVerified]);
 
   // Initialize Exam Attempt (Start new or Resume active session)
   useEffect(() => {
@@ -170,9 +219,9 @@ const QuizScreen = () => {
     initExam();
   }, [quizId]);
 
-  // Timer Tick
+  // Timer Tick (only counts down once proctoring verified and exam begins)
   useEffect(() => {
-    if (timeLeftSeconds <= 0 || loading || !attemptId) return;
+    if (timeLeftSeconds <= 0 || loading || !attemptId || !proctorVerified) return;
 
     timerRef.current = setInterval(() => {
       setTimeLeftSeconds((prev) => {
@@ -186,7 +235,7 @@ const QuizScreen = () => {
     }, 1000);
 
     return () => clearInterval(timerRef.current);
-  }, [timeLeftSeconds, loading, attemptId]);
+  }, [timeLeftSeconds, loading, attemptId, proctorVerified]);
 
   // Anti-Cheating Listeners: Tab Switch Detection
   useEffect(() => {
@@ -610,67 +659,166 @@ const QuizScreen = () => {
         </div>
       )}
 
-      {/* Anti-Cheating Breach Modal */}
+      {/* 0. MANDATORY PRE-EXAM AI PROCTORING & SYSTEM VERIFICATION MODAL */}
+      {!proctorVerified && !loading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl p-4 overflow-y-auto">
+          <div className="w-full max-w-lg glass-panel p-6 sm:p-8 rounded-3xl border border-rose-500/30 shadow-2xl text-center relative my-auto">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-rose-600 to-indigo-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-rose-500/20">
+              <ShieldAlert className="w-7 h-7 text-white" />
+            </div>
+
+            <h2 className="text-2xl font-black text-[var(--text-primary)]">
+              AI Proctoring & System Check
+            </h2>
+            <p className="text-xs text-[var(--text-secondary)] mt-1.5 max-w-sm mx-auto">
+              This examination is protected with strict AI invigilation. Camera, microphone, and Fullscreen mode are mandatory.
+            </p>
+
+            {/* Camera Preview Box */}
+            <div className="mt-6 mb-4 relative w-64 h-48 mx-auto rounded-2xl overflow-hidden bg-black/80 border-2 border-[var(--border-card)] shadow-inner flex items-center justify-center">
+              {cameraActive ? (
+                <video
+                  ref={previewVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover transform -scale-x-100"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center p-4 text-[var(--text-muted)]">
+                  <CameraOff className="w-10 h-10 mb-2 text-rose-500/70" />
+                  <span className="text-xs font-semibold">Webcam Not Active</span>
+                  <span className="text-[10px] text-[var(--text-muted)] mt-1">Click below to allow access</span>
+                </div>
+              )}
+
+              {cameraActive && (
+                <div className="absolute top-2 left-2 flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-black/75 text-emerald-400 text-[10px] font-bold">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                  Live Camera Feed
+                </div>
+              )}
+            </div>
+
+            {/* Verification Checklist */}
+            <div className="grid grid-cols-2 gap-2 text-left mb-6">
+              <div className={`p-3 rounded-xl border text-xs font-semibold flex items-center gap-2 ${
+                cameraActive
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400'
+              }`}>
+                {cameraActive ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 flex-shrink-0" />}
+                <span>{cameraActive ? 'Camera Connected' : 'Camera Required'}</span>
+              </div>
+
+              <div className={`p-3 rounded-xl border text-xs font-semibold flex items-center gap-2 ${
+                cameraActive
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400'
+              }`}>
+                {cameraActive ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <AlertTriangle className="w-4 h-4 flex-shrink-0" />}
+                <span>{cameraActive ? 'Microphone Active' : 'Audio Required'}</span>
+              </div>
+            </div>
+
+            {permissionError && (
+              <div className="mb-4 p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-500 text-xs font-semibold">
+                {permissionError}
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            {!cameraActive ? (
+              <button
+                type="button"
+                onClick={requestCameraAndMicPermissions}
+                className="w-full py-3.5 px-6 rounded-xl font-bold text-white btn-gradient-primary shadow-lg shadow-blue-600/30 transition-all hover:scale-[1.01] flex items-center justify-center gap-2 text-sm cursor-pointer"
+              >
+                <Camera className="w-4 h-4" />
+                Allow Camera & Audio Permissions
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleStartExamFullscreen}
+                className="w-full py-3.5 px-6 rounded-xl font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 shadow-lg shadow-emerald-600/30 transition-all hover:scale-[1.01] flex items-center justify-center gap-2 text-sm cursor-pointer"
+              >
+                <Maximize2 className="w-4 h-4" />
+                Enter Fullscreen Mode & Begin Exam
+              </button>
+            )}
+
+            <p className="mt-4 text-[11px] text-[var(--text-muted)]">
+              Exiting fullscreen mode or switching browser tabs during the examination logs anti-cheating strikes.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Anti-Cheating Breach Modal (Fullscreen Lockdown) */}
       {showViolationModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="w-full max-w-md glass-panel p-6 sm:p-8 rounded-3xl border border-rose-500/40 shadow-2xl text-center">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-md p-4">
+          <div className="w-full max-w-md glass-panel p-6 sm:p-8 rounded-3xl border border-rose-500/50 shadow-2xl text-center">
             <ShieldAlert className="w-12 h-12 text-rose-500 mx-auto mb-3 animate-pulse" />
             <h3 className="text-xl font-bold text-[var(--text-primary)]">Security Violation Warning</h3>
             <p className="text-sm text-rose-500 dark:text-rose-300 mt-2 mb-6">{violationMessage}</p>
             <button
               type="button"
-              onClick={() => setShowViolationModal(false)}
-              className="px-6 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-xs hover:bg-rose-500 transition-colors cursor-pointer"
+              onClick={handleReturnToFullscreen}
+              className="w-full py-3 px-6 rounded-xl bg-rose-600 text-white font-bold text-xs hover:bg-rose-500 transition-colors cursor-pointer flex items-center justify-center gap-2"
             >
-              I Understand & Return to Exam
+              <Maximize2 className="w-4 h-4" />
+              Return to Fullscreen to Resume Exam
             </button>
           </div>
         </div>
       )}
 
       {/* Floating Live AI Proctor Camera & Fullscreen Widget */}
-      <div className="fixed bottom-5 right-5 z-40 p-2.5 rounded-2xl bg-[var(--bg-card)] border-2 border-rose-500/50 shadow-2xl flex flex-col items-center backdrop-blur-md">
-        <div className="relative w-36 h-28 rounded-xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
-          {cameraActive ? (
-            <video
-              ref={videoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover transform -scale-x-100"
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center text-center p-2 text-rose-400">
-              <CameraOff className="w-5 h-5 mb-1" />
-              <span className="text-[9px] font-bold">Proctor Camera Standby</span>
+      {proctorVerified && (
+        <div className="fixed bottom-5 right-5 z-40 p-2.5 rounded-2xl bg-[var(--bg-card)] border-2 border-rose-500/50 shadow-2xl flex flex-col items-center backdrop-blur-md">
+          <div className="relative w-36 h-28 rounded-xl overflow-hidden bg-black flex items-center justify-center shadow-inner">
+            {cameraActive ? (
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover transform -scale-x-100"
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center text-center p-2 text-rose-400">
+                <CameraOff className="w-5 h-5 mb-1" />
+                <span className="text-[9px] font-bold">Proctor Camera Standby</span>
+              </div>
+            )}
+
+            {/* Glowing Live Badge */}
+            <div className="absolute top-1.5 left-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/75 text-rose-400 text-[9px] font-black uppercase tracking-wider backdrop-blur-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+              AI Proctor Live
             </div>
-          )}
-
-          {/* Glowing Live Badge */}
-          <div className="absolute top-1.5 left-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded bg-black/75 text-rose-400 text-[9px] font-black uppercase tracking-wider backdrop-blur-sm">
-            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
-            AI Proctor Live
           </div>
-        </div>
 
-        {/* Fullscreen Button */}
-        <button
-          type="button"
-          onClick={toggleFullscreen}
-          className="mt-2 w-full py-1 text-[10px] font-bold rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow flex items-center justify-center gap-1 cursor-pointer transition-colors"
-          title="Toggle Fullscreen Mode"
-        >
-          {isFullscreen ? (
-            <>
-              <Minimize2 className="w-3 h-3" /> Exit Fullscreen
-            </>
-          ) : (
-            <>
-              <Maximize2 className="w-3 h-3" /> Enter Fullscreen
-            </>
-          )}
-        </button>
-      </div>
+          {/* Fullscreen Toggle Button */}
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            className="mt-2 w-full py-1 text-[10px] font-bold rounded-lg bg-blue-600 hover:bg-blue-500 text-white shadow flex items-center justify-center gap-1 cursor-pointer transition-colors"
+            title="Toggle Fullscreen Mode"
+          >
+            {isFullscreen ? (
+              <>
+                <Minimize2 className="w-3 h-3" /> Exit Fullscreen
+              </>
+            ) : (
+              <>
+                <Maximize2 className="w-3 h-3" /> Enter Fullscreen
+              </>
+            )}
+          </button>
+        </div>
+      )}
 
     </div>
   );

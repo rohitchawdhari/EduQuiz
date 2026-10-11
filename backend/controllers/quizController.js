@@ -251,6 +251,17 @@ const getQuizSubmissions = async (req, res) => {
       return res.status(404).json({ success: false, message: "Quiz not found" });
     }
 
+    // Security check: Only Admin or the instructor who created this specific exam can view student submissions
+    if (
+      req.user.role !== "admin" &&
+      quiz.createdBy?.toString() !== req.user._id?.toString()
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied. Instructors can only view submissions for exams they personally created.",
+      });
+    }
+
     const attempts = await Attempt.find({
       quizId: req.params.id,
       status: { $in: ["SUBMITTED", "AUTO_SUBMITTED"] },

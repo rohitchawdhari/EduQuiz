@@ -88,7 +88,8 @@ const Signup = () => {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              placeholder="Rohit Chawdhari"
+              autoComplete="name"
+              placeholder="Enter your full name"
               className="w-full px-4 py-2.5 rounded-xl input-adaptive text-sm"
             />
           </div>
@@ -102,7 +103,8 @@ const Signup = () => {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              placeholder="rohit@example.com"
+              autoComplete="email"
+              placeholder="Enter your email address"
               className="w-full px-4 py-2.5 rounded-xl input-adaptive text-sm"
             />
           </div>
@@ -116,7 +118,8 @@ const Signup = () => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              placeholder="Min. 6 characters"
+              autoComplete="new-password"
+              placeholder="Create a password (min. 6 chars)"
               className="w-full px-4 py-2.5 rounded-xl input-adaptive text-sm"
             />
           </div>
